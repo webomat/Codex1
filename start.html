@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz muzyczny - zgadnij nutę</title>
+    <style>
+        :root {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #1c1c1c;
+            background: #f4f6fb;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+        }
+
+        main {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+            padding: 32px;
+            max-width: 480px;
+            width: 90vw;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.75em;
+            text-align: center;
+            color: #3a3a7a;
+        }
+
+        p.description {
+            text-align: center;
+            color: #555;
+        }
+
+        button,
+        select {
+            font: inherit;
+            padding: 0.65em 1em;
+            border-radius: 999px;
+            border: none;
+            box-shadow: 0 4px 10px rgba(51, 51, 102, 0.2);
+            background: linear-gradient(135deg, #5c6bc0, #8e99f3);
+            color: #fff;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        button:hover,
+        select:hover,
+        button:focus,
+        select:focus {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 14px rgba(51, 51, 102, 0.25);
+            outline: none;
+        }
+
+        select {
+            width: 100%;
+            margin: 16px 0;
+            background: #ffffff;
+            color: #3a3a7a;
+            border: 2px solid #8e99f3;
+            box-shadow: none;
+        }
+
+        button.secondary {
+            background: linear-gradient(135deg, #43cea2, #185a9d);
+            width: 100%;
+        }
+
+        .status {
+            margin-top: 1em;
+            padding: 0.75em 1em;
+            border-radius: 12px;
+            background: #f1f4ff;
+            color: #283593;
+            min-height: 2.5em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .scoreboard {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 1.5em;
+            color: #283593;
+            font-weight: 600;
+        }
+
+        .controls {
+            display: grid;
+            gap: 12px;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Quiz muzyczny - zgadnij nutę</h1>
+        <p class="description">Wciśnij przycisk, posłuchaj dźwięku i wybierz odpowiadającą mu nutę.</p>
+
+        <div class="controls">
+            <button id="play-note" type="button">Odtwórz losową nutę</button>
+            <select id="note-select" aria-label="Wybierz nazwę nuty">
+                <option value="" selected disabled>Wybierz nutę...</option>
+            </select>
+            <button class="secondary" id="check-answer" type="button">Sprawdź odpowiedź</button>
+        </div>
+
+        <div class="status" id="status" role="status" aria-live="polite">
+            Odtwórz nutę i spróbuj ją rozpoznać!
+        </div>
+
+        <div class="scoreboard">
+            <span>Poprawne: <span id="correct-score">0</span></span>
+            <span>Próby: <span id="attempts">0</span></span>
+        </div>
+    </main>
+
+    <script>
+        const notes = [
+            { name: 'C4 (Do)', frequency: 261.63 },
+            { name: 'D4 (Re)', frequency: 293.66 },
+            { name: 'E4 (Mi)', frequency: 329.63 },
+            { name: 'F4 (Fa)', frequency: 349.23 },
+            { name: 'G4 (Sol)', frequency: 392.00 },
+            { name: 'A4 (La)', frequency: 440.00 },
+            { name: 'B4 (Si)', frequency: 493.88 },
+            { name: 'C5 (Do)', frequency: 523.25 }
+        ];
+
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let currentNote = null;
+        let correctAnswers = 0;
+        let attempts = 0;
+
+        const noteSelect = document.getElementById('note-select');
+        const playButton = document.getElementById('play-note');
+        const checkButton = document.getElementById('check-answer');
+        const statusElement = document.getElementById('status');
+        const correctScore = document.getElementById('correct-score');
+        const attemptsScore = document.getElementById('attempts');
+
+        function fillSelectOptions() {
+            notes.forEach(({ name }) => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                noteSelect.appendChild(option);
+            });
+        }
+
+        function playTone(frequency, duration = 2) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.4, audioContext.currentTime + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + duration);
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+
+        function pickRandomNote() {
+            const randomIndex = Math.floor(Math.random() * notes.length);
+            currentNote = notes[randomIndex];
+        }
+
+        function resetStatus(message = 'Odtwórz nutę i spróbuj ją rozpoznać!') {
+            statusElement.textContent = message;
+        }
+
+        playButton.addEventListener('click', () => {
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            pickRandomNote();
+            playTone(currentNote.frequency);
+            resetStatus('Dźwięk odtworzony. Wybierz, jaka to nuta.');
+        });
+
+        checkButton.addEventListener('click', () => {
+            const selected = noteSelect.value;
+
+            if (!currentNote) {
+                resetStatus('Najpierw odtwórz nutę, aby ją zgadnąć.');
+                return;
+            }
+
+            if (!selected) {
+                resetStatus('Wybierz nazwę nuty z listy.');
+                return;
+            }
+
+            attempts += 1;
+            attemptsScore.textContent = attempts;
+
+            if (selected === currentNote.name) {
+                correctAnswers += 1;
+                correctScore.textContent = correctAnswers;
+                resetStatus('Brawo! To poprawna odpowiedź.');
+            } else {
+                resetStatus(`To nie to. Poprawna nuta to: ${currentNote.name}.`);
+            }
+
+            currentNote = null;
+            noteSelect.value = '';
+        });
+
+        fillSelectOptions();
+    </script>
+</body>
+</html>
