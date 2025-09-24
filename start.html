@@ -101,23 +101,104 @@
             display: grid;
             gap: 12px;
         }
+
+        .staff {
+            position: relative;
+            margin: 24px 0;
+            padding: 28px 20px;
+            border-radius: 16px;
+            background: #f9f9ff;
+            box-shadow: inset 0 0 0 1px rgba(58, 58, 122, 0.1);
+            height: 176px;
+        }
+
+        .staff-lines {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 120px;
+        }
+
+        .staff-line {
+            height: 2px;
+            background: #3a3a7a;
+            border-radius: 999px;
+            opacity: 0.6;
+        }
+
+        .note-wrapper {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .note {
+            position: absolute;
+            width: 28px;
+            height: 20px;
+            background: #1c1c1c;
+            border-radius: 50% / 60%;
+            transform: translate(-50%, -50%) rotate(-12deg);
+            left: 50%;
+            top: 50%;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+
+        .note.visible {
+            opacity: 1;
+        }
+
+        .ledger-line {
+            position: absolute;
+            left: 50%;
+            width: 40px;
+            height: 2px;
+            background: #3a3a7a;
+            border-radius: 999px;
+            transform: translate(-50%, -50%);
+            top: 132px;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+
+        .ledger-line.visible {
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
     <main>
         <h1>Quiz muzyczny - zgadnij nutę</h1>
-        <p class="description">Wciśnij przycisk, posłuchaj dźwięku i wybierz odpowiadającą mu nutę.</p>
+        <p class="description">Wciśnij przycisk, zobacz nutę na pięciolinii i wybierz odpowiadającą jej nazwę.</p>
 
         <div class="controls">
-            <button id="play-note" type="button">Odtwórz losową nutę</button>
+            <button id="show-note" type="button">Pokaż losową nutę</button>
             <select id="note-select" aria-label="Wybierz nazwę nuty">
                 <option value="" selected disabled>Wybierz nutę...</option>
             </select>
             <button class="secondary" id="check-answer" type="button">Sprawdź odpowiedź</button>
         </div>
 
+        <div class="staff" role="img" aria-label="Podgląd wylosowanej nuty na pięciolinii">
+            <div class="staff-lines" aria-hidden="true">
+                <span class="staff-line"></span>
+                <span class="staff-line"></span>
+                <span class="staff-line"></span>
+                <span class="staff-line"></span>
+                <span class="staff-line"></span>
+            </div>
+            <div class="note-wrapper" aria-hidden="true">
+                <span class="ledger-line" id="ledger-line"></span>
+                <span class="note" id="staff-note"></span>
+            </div>
+        </div>
+
         <div class="status" id="status" role="status" aria-live="polite">
-            Odtwórz nutę i spróbuj ją rozpoznać!
+            Wylosuj nutę i spróbuj ją rozpoznać!
         </div>
 
         <div class="scoreboard">
@@ -128,27 +209,28 @@
 
     <script>
         const notes = [
-            { name: 'C4 (Do)', frequency: 261.63 },
-            { name: 'D4 (Re)', frequency: 293.66 },
-            { name: 'E4 (Mi)', frequency: 329.63 },
-            { name: 'F4 (Fa)', frequency: 349.23 },
-            { name: 'G4 (Sol)', frequency: 392.00 },
-            { name: 'A4 (La)', frequency: 440.00 },
-            { name: 'B4 (Si)', frequency: 493.88 },
-            { name: 'C5 (Do)', frequency: 523.25 }
+            { name: 'C4 (Do)', staffPosition: 132, needsLedger: true },
+            { name: 'D4 (Re)', staffPosition: 118, needsLedger: false },
+            { name: 'E4 (Mi)', staffPosition: 104, needsLedger: false },
+            { name: 'F4 (Fa)', staffPosition: 90, needsLedger: false },
+            { name: 'G4 (Sol)', staffPosition: 76, needsLedger: false },
+            { name: 'A4 (La)', staffPosition: 62, needsLedger: false },
+            { name: 'B4 (Si)', staffPosition: 48, needsLedger: false },
+            { name: 'C5 (Do)', staffPosition: 34, needsLedger: false }
         ];
 
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         let currentNote = null;
         let correctAnswers = 0;
         let attempts = 0;
 
         const noteSelect = document.getElementById('note-select');
-        const playButton = document.getElementById('play-note');
+        const showNoteButton = document.getElementById('show-note');
         const checkButton = document.getElementById('check-answer');
         const statusElement = document.getElementById('status');
         const correctScore = document.getElementById('correct-score');
         const attemptsScore = document.getElementById('attempts');
+        const staffNote = document.getElementById('staff-note');
+        const ledgerLine = document.getElementById('ledger-line');
 
         function fillSelectOptions() {
             notes.forEach(({ name }) => {
@@ -159,22 +241,14 @@
             });
         }
 
-        function playTone(frequency, duration = 2) {
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
-
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-
-            gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.4, audioContext.currentTime + 0.05);
-            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + duration);
-
-            oscillator.start();
-            oscillator.stop(audioContext.currentTime + duration);
+        function showNoteOnStaff(note) {
+            staffNote.style.top = `${note.staffPosition}px`;
+            staffNote.classList.add('visible');
+            if (note.needsLedger) {
+                ledgerLine.classList.add('visible');
+            } else {
+                ledgerLine.classList.remove('visible');
+            }
         }
 
         function pickRandomNote() {
@@ -182,24 +256,21 @@
             currentNote = notes[randomIndex];
         }
 
-        function resetStatus(message = 'Odtwórz nutę i spróbuj ją rozpoznać!') {
+        function resetStatus(message = 'Wylosuj nutę i spróbuj ją rozpoznać!') {
             statusElement.textContent = message;
         }
 
-        playButton.addEventListener('click', () => {
-            if (audioContext.state === 'suspended') {
-                audioContext.resume();
-            }
+        showNoteButton.addEventListener('click', () => {
             pickRandomNote();
-            playTone(currentNote.frequency);
-            resetStatus('Dźwięk odtworzony. Wybierz, jaka to nuta.');
+            showNoteOnStaff(currentNote);
+            resetStatus('Nuta została wyświetlona. Wybierz, jaka to nuta.');
         });
 
         checkButton.addEventListener('click', () => {
             const selected = noteSelect.value;
 
             if (!currentNote) {
-                resetStatus('Najpierw odtwórz nutę, aby ją zgadnąć.');
+                resetStatus('Najpierw wylosuj nutę, aby ją zgadnąć.');
                 return;
             }
 
@@ -221,6 +292,8 @@
 
             currentNote = null;
             noteSelect.value = '';
+            staffNote.classList.remove('visible');
+            ledgerLine.classList.remove('visible');
         });
 
         fillSelectOptions();
